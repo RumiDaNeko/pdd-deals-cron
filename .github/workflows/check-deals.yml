@@ -16,7 +16,7 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 20  # sending one message per deal can outlast the 10-min schedule; runs queue, never overlap
     steps:
       - uses: actions/checkout@v4
 
