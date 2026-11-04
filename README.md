@@ -1,19 +1,30 @@
 # pdd-deals-cron
 
-Repo này chỉ có một nhiệm vụ: cứ 10 phút một lần, nó gọi Worker **pdd-deals** trên Cloudflare để Worker kiểm tra deal mới trên các sàn Trung Quốc và báo qua Telegram.
+Phần việc nặng của bot săn deal [@pdd_discounts_bot](https://t.me/pdd_discounts_bot). Cứ 10 phút một lần, GitHub Actions:
 
-Lý do phải tách ra đây: account Cloudflare đã dùng hết 5 cron trigger của gói Free. GitHub Actions trên repo public thì chạy miễn phí.
+1. **Crawl** deal mới trên 6 sàn Trung Quốc (Pinduoduo, Tmall, JD, Taobao, Douyin, Vipshop) từ API của smzdm.com, tối đa 10 trang mỗi sàn. Có khoảng 900 deal mỗi giờ.
+2. **Dịch** tên sản phẩm sang tiếng Việt bằng mô hình mã nguồn mở [opus-mt-zh-vi](https://huggingface.co/Helsinki-NLP/opus-mt-zh-vi), chạy ngay trên máy của GitHub. Miễn phí, không giới hạn số lần gọi.
+3. **Đẩy** từng gói 10 deal sang Worker `pdd-deals` trên Cloudflare. Worker lọc theo bộ lọc của từng người đăng ký rồi gửi album Telegram.
+
+Tách ra đây vì Cloudflare Workers gói Free chỉ cho 50 request ra ngoài mỗi lần chạy và hạn mức Workers AI nhỏ; GitHub Actions trên repo public thì miễn phí.
 
 ## Cách hoạt động
 
 ```
-GitHub Actions (*/10 * * * *)
-  └─ POST https://pdd-deals.harumi.workers.dev/run   (Authorization: Bearer RUN_TOKEN)
-       └─ Worker đọc deal Pinduoduo, Tmall, JD, Taobao, Douyin, Vipshop từ smzdm.com, lọc theo danh sách theo dõi,
-          gửi deal mới qua Telegram, nhớ deal đã gửi cho từng người trong D1
+GitHub Actions (*/10 * * * *)  crawl.py
+  ├─ GET  /cursor  → mốc thời gian deal cuối cùng đã gửi
+  ├─ crawl smzdm (7 mall id, nhiều trang) → deal mới hơn mốc đó
+  ├─ dịch tiêu đề (opus-mt-zh-vi, CPU)
+  └─ POST /send  (10 deal/lần, Authorization: Bearer RUN_TOKEN)
+        └─ Worker: lọc theo từng người (danh mục, từ khoá, giá, sàn) → album Telegram
+           cập nhật mốc thời gian khi gói đó đã tới đủ mọi người
 ```
 
-Muốn xem deal trực tiếp, mở https://pdd-deals.harumi.workers.dev/?q=蓝牙耳机&max=100. Từ khoá viết bằng tiếng Trung, `max` là giá tối đa tính bằng tệ.
+Chạy thử ở máy, không gửi gì:
+
+```bash
+python crawl.py --dry-run --no-translate
+```
 
 ## Cấu hình
 
@@ -21,7 +32,7 @@ Muốn xem deal trực tiếp, mở https://pdd-deals.harumi.workers.dev/?q=蓝�
 |---|---|---|
 | Secret của repo | `RUN_TOKEN` | Phải trùng với secret `RUN_TOKEN` của Worker. Sai token thì Worker trả 403 và workflow báo lỗi. |
 
-Danh sách từ khoá theo dõi (`WATCHES`) và token Telegram được cấu hình ở phía Worker, không nằm trong repo này.
+Bộ lọc của từng người, token Telegram và danh sách người đăng ký nằm ở phía Worker (D1), không nằm trong repo này.
 
 ## Chạy tay
 

@@ -1,5 +1,6 @@
-# Calls the pdd-deals Worker every 10 minutes (replaces a Cloudflare cron trigger,
-# since the account's free cron slots are taken). Needs repo secret RUN_TOKEN.
+# Every 10 minutes: crawl new deals from all stores on smzdm, translate titles to
+# Vietnamese with an open model (opus-mt-zh-vi), and post them to the pdd-deals Worker,
+# which filters per subscriber and sends Telegram albums. Needs repo secret RUN_TOKEN.
 name: check-deals
 
 on:
@@ -7,13 +8,34 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+# Never run two crawls at once: they would deliver the same deals twice.
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
 jobs:
-  run:
+  crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 9
     steps:
-      - name: POST /run
-        run: |
-          curl -fsS --max-time 120 -X POST \
-            -H "Authorization: Bearer ${{ secrets.RUN_TOKEN }}" \
-            https://pdd-deals.harumi.workers.dev/run
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Cache translation model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-opus-mt-zh-vi
+
+      - name: Crawl and deliver
+        env:
+          RUN_TOKEN: ${{ secrets.RUN_TOKEN }}
+        run: python crawl.py
