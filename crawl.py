@@ -39,7 +39,8 @@ PAGE_SIZE = 50
 MAX_PAGES = 10  # per store per run; JD alone posts ~500 deals/hour
 FIRST_RUN_WINDOW = 15 * 60
 MAX_BACKLOG = 60 * 60  # after an outage, skip deals older than this
-BATCH = 10  # deals per /send call (one Telegram album)
+BATCH = 10  # deals per /send call; the Worker sends one Telegram message per deal per subscriber
+MAX_CALLS_PER_BATCH = 50  # each call covers ~24 messages; guards against a Worker that never finishes
 
 SUBSIDY = re.compile(r"^百亿补贴[：:]\s*")
 PRICE = re.compile(r"(\d+(?:\.\d+)?)\s*元")
@@ -142,11 +143,10 @@ def deliver(deals: list[dict], token: str) -> int:
     sent = 0
     for i in range(0, len(deals), BATCH):
         batch = deals[i : i + BATCH]
-        start = None
-        while True:
-            payload = {"deals": batch} if start is None else {"deals": batch, "from": start}
+        position: dict = {}  # where the Worker stopped: {"from": subscriber index, "skip": deals already sent to it}
+        for _ in range(MAX_CALLS_PER_BATCH):
             try:
-                r = http_json(f"{WORKER}/send", payload, token)
+                r = http_json(f"{WORKER}/send", {"deals": batch, **position}, token)
             except urllib.error.HTTPError as e:
                 # Stop here; the cursor stays before this batch, so the next run retries it.
                 print(f"/send failed at batch {i // BATCH}: {e.code} {e.read().decode()[:200]}", file=sys.stderr)
@@ -154,8 +154,11 @@ def deliver(deals: list[dict], token: str) -> int:
             sent += r.get("sent", 0)
             if r.get("done"):
                 break
-            start = r["next"]
-        time.sleep(1)  # be gentle with Telegram's per-chat flood limits
+            nxt = r["next"]
+            position = nxt if isinstance(nxt, dict) else {"from": nxt}
+        else:
+            print(f"/send did not finish batch {i // BATCH} in {MAX_CALLS_PER_BATCH} calls; stopping", file=sys.stderr)
+            return sent
     return sent
 
 

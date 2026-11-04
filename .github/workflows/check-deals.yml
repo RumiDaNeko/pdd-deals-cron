@@ -1,6 +1,6 @@
 # Every 10 minutes: crawl new deals from all stores on smzdm, translate titles to
 # Vietnamese (Google's public translate endpoint), and post them to the pdd-deals Worker,
-# which filters per subscriber and sends Telegram albums. Needs repo secret RUN_TOKEN.
+# which filters per subscriber and sends one Telegram message per deal. Needs repo secret RUN_TOKEN.
 name: check-deals
 
 on:
