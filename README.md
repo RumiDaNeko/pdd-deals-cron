@@ -1,16 +1,16 @@
 # pdd-deals-cron
 
-Repo này chỉ có một nhiệm vụ: cứ 30 phút một lần, nó gọi Worker **pdd-deals** trên Cloudflare để Worker kiểm tra deal Pinduoduo mới và báo qua Telegram.
+Repo này chỉ có một nhiệm vụ: cứ 10 phút một lần, nó gọi Worker **pdd-deals** trên Cloudflare để Worker kiểm tra deal mới trên các sàn Trung Quốc và báo qua Telegram.
 
 Lý do phải tách ra đây: account Cloudflare đã dùng hết 5 cron trigger của gói Free. GitHub Actions trên repo public thì chạy miễn phí.
 
 ## Cách hoạt động
 
 ```
-GitHub Actions (*/30 * * * *)
+GitHub Actions (*/10 * * * *)
   └─ POST https://pdd-deals.harumi.workers.dev/run   (Authorization: Bearer RUN_TOKEN)
-       └─ Worker đọc deal Pinduoduo từ smzdm.com, lọc theo danh sách theo dõi,
-          gửi deal mới qua Telegram, nhớ deal đã gửi trong KV
+       └─ Worker đọc deal Pinduoduo, Tmall, JD, Taobao, Douyin, Vipshop từ smzdm.com, lọc theo danh sách theo dõi,
+          gửi deal mới qua Telegram, nhớ deal đã gửi cho từng người trong D1
 ```
 
 Muốn xem deal trực tiếp, mở https://pdd-deals.harumi.workers.dev/?q=蓝牙耳机&max=100. Từ khoá viết bằng tiếng Trung, `max` là giá tối đa tính bằng tệ.
