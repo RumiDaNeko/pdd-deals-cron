@@ -22,7 +22,8 @@ import urllib.request
 
 WORKER = os.environ.get("WORKER_URL", "https://pdd-deals.harumi.workers.dev")
 SMZDM = "https://api.smzdm.com/v1/list"
-MODEL = os.environ.get("MT_MODEL", "Helsinki-NLP/opus-mt-zh-vi")
+GTX = "https://translate.googleapis.com/translate_a/single"
+TRANSLATE_BATCH = 40  # titles per request, joined by newlines
 
 # smzdm mall_id -> Worker mall key (keep in sync with MALLS in the Worker).
 MALL_IDS = {
@@ -104,27 +105,37 @@ def sane(src: str, out: str) -> bool:
     return not re.search(r"(\S+)(\s+\1){3,}", out)
 
 
-def translate(deals: list[dict]) -> None:
+def gtx(texts: list[str]) -> list[str] | None:
+    """Google's public translate endpoint (no key). Returns None if blocked or misaligned."""
+    data = urllib.parse.urlencode({"client": "gtx", "sl": "zh-CN", "tl": "vi", "dt": "t", "q": "\n".join(texts)}).encode()
+    req = urllib.request.Request(GTX, data=data, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        from transformers import MarianMTModel, MarianTokenizer
-    except ImportError:
-        print("transformers not installed; sending Chinese titles", file=sys.stderr)
-        return
-    tok = MarianTokenizer.from_pretrained(MODEL)
-    model = MarianMTModel.from_pretrained(MODEL)
-    texts = [SUBSIDY.sub("", d["title"]) for d in deals]
-    t0 = time.time()
-    for i in range(0, len(texts), 32):
-        chunk = texts[i : i + 32]
-        enc = tok(chunk, return_tensors="pt", padding=True, truncation=True, max_length=128)
-        out = model.generate(**enc, max_new_tokens=128, num_beams=2)
-        for j, vi in enumerate(tok.batch_decode(out, skip_special_tokens=True)):
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = json.loads(r.read().decode())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        print(f"  translate failed: {e}", file=sys.stderr)
+        return None
+    lines = "".join(seg[0] for seg in body[0] if seg and seg[0]).split("\n")
+    return [l.strip() for l in lines] if len(lines) == len(texts) else None
+
+
+def translate(deals: list[dict]) -> None:
+    texts = [SUBSIDY.sub("", d["title"]).replace("\n", " ") for d in deals]
+    t0, done = time.time(), 0
+    for i in range(0, len(texts), TRANSLATE_BATCH):
+        chunk = texts[i : i + TRANSLATE_BATCH]
+        out = gtx(chunk)
+        if out is None:
+            break  # blocked or rate limited: send the rest with Chinese titles
+        for j, vi in enumerate(out):
             d = deals[i + j]
             if sane(chunk[j], vi):
                 d["titleVi"] = ("[Trợ giá 10 tỷ tệ] " if SUBSIDY.match(d["title"]) else "") + vi
-    print(f"translated {len(texts)} titles in {time.time() - t0:.0f}s, e.g.")
+                done += 1
+        time.sleep(0.5)
+    print(f"translated {done}/{len(texts)} titles in {time.time() - t0:.0f}s, e.g.")
     for d in deals[:5]:
-        print(f"  {d['title'][:40]}  ->  {d.get('titleVi', '(rejected)')}")
+        print(f"  {d['title'][:40]}  ->  {d.get('titleVi', '(untranslated)')}")
 
 
 def deliver(deals: list[dict], token: str) -> int:

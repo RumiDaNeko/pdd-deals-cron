@@ -3,10 +3,10 @@
 Phần việc nặng của bot săn deal [@pdd_discounts_bot](https://t.me/pdd_discounts_bot). Cứ 10 phút một lần, GitHub Actions:
 
 1. **Crawl** deal mới trên 6 sàn Trung Quốc (Pinduoduo, Tmall, JD, Taobao, Douyin, Vipshop) từ API của smzdm.com, tối đa 10 trang mỗi sàn. Có khoảng 900 deal mỗi giờ.
-2. **Dịch** tên sản phẩm sang tiếng Việt bằng mô hình mã nguồn mở [opus-mt-zh-vi](https://huggingface.co/Helsinki-NLP/opus-mt-zh-vi), chạy ngay trên máy của GitHub. Miễn phí, không giới hạn số lần gọi.
+2. **Dịch** tên sản phẩm sang tiếng Việt qua endpoint dịch công khai của Google (`translate.googleapis.com`, không cần key), 40 tên mỗi request. Đây là endpoint không chính thức: nếu bị chặn, deal vẫn được gửi với tên tiếng Trung. (Đã thử opus-mt-zh-vi, dịch bắc cầu zh→en→vi và NLLB-200 chạy trên GitHub: tên sản phẩm bị dịch sai hoặc lặp chữ, nên bỏ.)
 3. **Đẩy** từng gói 10 deal sang Worker `pdd-deals` trên Cloudflare. Worker lọc theo bộ lọc của từng người đăng ký rồi gửi album Telegram.
 
-Tách ra đây vì Cloudflare Workers gói Free chỉ cho 50 request ra ngoài mỗi lần chạy và hạn mức Workers AI nhỏ; GitHub Actions trên repo public thì miễn phí.
+Tách ra đây vì Cloudflare Workers gói Free chỉ cho 50 request ra ngoài mỗi lần chạy; GitHub Actions trên repo public thì miễn phí và không giới hạn thời gian chạy.
 
 ## Cách hoạt động
 
@@ -14,7 +14,7 @@ Tách ra đây vì Cloudflare Workers gói Free chỉ cho 50 request ra ngoài m
 GitHub Actions (*/10 * * * *)  crawl.py
   ├─ GET  /cursor  → mốc thời gian deal cuối cùng đã gửi
   ├─ crawl smzdm (7 mall id, nhiều trang) → deal mới hơn mốc đó
-  ├─ dịch tiêu đề (opus-mt-zh-vi, CPU)
+  ├─ dịch tiêu đề (Google translate, 40 tên/request)
   └─ POST /send  (10 deal/lần, Authorization: Bearer RUN_TOKEN)
         └─ Worker: lọc theo từng người (danh mục, từ khoá, giá, sàn) → album Telegram
            cập nhật mốc thời gian khi gói đó đã tới đủ mọi người
