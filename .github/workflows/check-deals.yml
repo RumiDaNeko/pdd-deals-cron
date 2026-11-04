@@ -1,0 +1,19 @@
+# Calls the pdd-deals Worker every 30 minutes (replaces a Cloudflare cron trigger,
+# since the account's free cron slots are taken). Needs repo secret RUN_TOKEN.
+name: check-deals
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: POST /run
+        run: |
+          curl -fsS --max-time 120 -X POST \
+            -H "Authorization: Bearer ${{ secrets.RUN_TOKEN }}" \
+            https://pdd-deals.harumi.workers.dev/run
